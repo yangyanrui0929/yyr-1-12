@@ -75,6 +75,7 @@ const initialState: GameState = {
   repairedScrollStories: [],
   lastScrollResult: null,
   currentScroll: null,
+  fakeScrollExposed: false,
 }
 
 interface GameActions {
@@ -204,6 +205,7 @@ export const useGameStore = create<GameState & GameActions>()(
           storyProgress: 0,
           performanceActive: false,
           currentInterruption: null,
+          fakeScrollExposed: false,
         })
       },
 
@@ -218,7 +220,7 @@ export const useGameStore = create<GameState & GameActions>()(
       startPerformance: () => {
         const state = get()
         if (!state.currentStory || !state.currentBranch) return
-        set({ performanceActive: true, storyProgress: 0 })
+        set({ performanceActive: true, storyProgress: 0, fakeScrollExposed: false })
       },
 
       tickPerformance: () => {
@@ -230,28 +232,40 @@ export const useGameStore = create<GameState & GameActions>()(
         const isFakeStory = state.currentStory?.isFakeScroll
         const seatedCustomers = state.customers.filter((c) => c.seatId !== null)
         const hasScholar = seatedCustomers.some((c) => c.type === '书生')
+        const scholarCustomer = seatedCustomers.find((c) => c.type === '书生')
 
         let interruptionChance = 0.18
-        if (isFakeStory && hasScholar) {
-          interruptionChance = 0.35
+        let shouldTriggerFakeExposure = false
+
+        if (isFakeStory && hasScholar && !state.fakeScrollExposed) {
+          if (state.storyProgress >= 35 && state.storyProgress <= 65) {
+            shouldTriggerFakeExposure = true
+          } else if (state.storyProgress > 65) {
+            shouldTriggerFakeExposure = Math.random() < 0.5
+          }
         }
 
-        if (!state.currentInterruption && Math.random() < interruptionChance && state.storyProgress > 10 && state.storyProgress < 90) {
-          if (seatedCustomers.length > 0) {
-            let ev
-            if (isFakeStory && hasScholar && Math.random() < 0.6) {
-              const fakeScrollInterruptions = state.interruptions.filter((i) =>
-                i.id.startsWith('i-fake-scroll')
-              )
-              ev = fakeScrollInterruptions[Math.floor(Math.random() * fakeScrollInterruptions.length)]
-            } else {
-              const c = seatedCustomers[Math.floor(Math.random() * seatedCustomers.length)]
-              const matching = state.interruptions.filter(
-                (i) => i.customerType === c.type && !i.id.startsWith('i-fake-scroll')
-              )
-              const pool = matching.length > 0 ? matching : state.interruptions.filter((i) => !i.id.startsWith('i-fake-scroll'))
-              ev = pool[Math.floor(Math.random() * pool.length)]
-            }
+        if (!state.currentInterruption && state.storyProgress > 10 && state.storyProgress < 90) {
+          if (shouldTriggerFakeExposure && scholarCustomer) {
+            const fakeScrollInterruptions = state.interruptions.filter((i) =>
+              i.id.startsWith('i-fake-scroll')
+            )
+            const ev = fakeScrollInterruptions[Math.floor(Math.random() * fakeScrollInterruptions.length)]
+            set({
+              currentInterruption: ev,
+              storyProgress: newProgress,
+              fakeScrollExposed: true,
+            })
+            return
+          }
+
+          if (seatedCustomers.length > 0 && Math.random() < interruptionChance) {
+            const c = seatedCustomers[Math.floor(Math.random() * seatedCustomers.length)]
+            const matching = state.interruptions.filter(
+              (i) => i.customerType === c.type && !i.id.startsWith('i-fake-scroll')
+            )
+            const pool = matching.length > 0 ? matching : state.interruptions.filter((i) => !i.id.startsWith('i-fake-scroll'))
+            const ev = pool[Math.floor(Math.random() * pool.length)]
             set({ currentInterruption: ev, storyProgress: newProgress })
             return
           }
@@ -391,23 +405,34 @@ export const useGameStore = create<GameState & GameActions>()(
       },
 
       nextDay: () => {
-        set((s) => ({
-          day: s.day + 1,
-          phase: 'day',
-          weather: randomWeather(),
-          customers: [],
-          currentStory: null,
-          currentBranch: null,
-          storyProgress: 0,
-          availableStories: [],
-          performanceActive: false,
-          currentInterruption: null,
-          isSettlement: false,
-          seats: s.seats.map((seat) => ({ ...seat, occupied: false })),
-          scrolls: getDailyScrolls(),
-          currentScroll: null,
-          lastScrollResult: null,
-        }))
+        set((s) => {
+          const purchasedUnrepaired = s.scrolls.filter((sc) => sc.isPurchased && !sc.isRepaired)
+          const newDailyScrolls = getDailyScrolls()
+          const existingIds = new Set(purchasedUnrepaired.map((sc) => sc.id.split('-')[0]))
+          const filteredNewScrolls = newDailyScrolls.filter(
+            (sc) => !existingIds.has(sc.id.split('-')[0])
+          )
+          const mergedScrolls = [...purchasedUnrepaired, ...filteredNewScrolls].slice(0, 6)
+
+          return {
+            day: s.day + 1,
+            phase: 'day',
+            weather: randomWeather(),
+            customers: [],
+            currentStory: null,
+            currentBranch: null,
+            storyProgress: 0,
+            availableStories: [],
+            performanceActive: false,
+            currentInterruption: null,
+            isSettlement: false,
+            seats: s.seats.map((seat) => ({ ...seat, occupied: false })),
+            scrolls: mergedScrolls,
+            currentScroll: null,
+            lastScrollResult: null,
+            fakeScrollExposed: false,
+          }
+        })
       },
 
       resetGame: () => {
@@ -452,9 +477,15 @@ export const useGameStore = create<GameState & GameActions>()(
         if (!scroll || !scroll.isPurchased || scroll.identified) return
 
         const successChance = getIdentifySuccessChance(scroll, state.reputation)
-        const isCorrect = Math.random() * 100 < successChance
+        const identificationSuccessful = Math.random() * 100 < successChance
         const actualAuthenticity = scroll.authenticity
-        const wasCorrect = guess === actualAuthenticity
+
+        let wasCorrect: boolean
+        if (identificationSuccessful) {
+          wasCorrect = guess === actualAuthenticity
+        } else {
+          wasCorrect = Math.random() < 0.3
+        }
 
         let reputationChange = 0
         let goldChange = 0

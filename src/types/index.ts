@@ -186,6 +186,7 @@ export interface GameState {
   repairedScrollStories: Story[]
   lastScrollResult: ScrollResult | null
   currentScroll: Scroll | null
+  fakeScrollExposed: boolean
 }
 
 export interface SettlementResult {
