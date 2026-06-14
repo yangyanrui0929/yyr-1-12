@@ -14,6 +14,9 @@ import type {
   StoryRecord,
   ReputationHistory,
   Renovation,
+  Scroll,
+  ScrollAuthenticity,
+  ScrollResult,
 } from '@/types'
 import { STORIES } from '@/data/stories'
 import { initSnacks } from '@/data/snacks'
@@ -22,6 +25,7 @@ import { initRenovations, getUpgradeCost } from '@/data/renovations'
 import { INTERRUPTIONS } from '@/data/interruptions'
 import { generateRandomCustomers } from '@/data/customers'
 import { calcSettlement } from '@/utils/settlement'
+import { getDailyScrolls, getRepairCost, getRepairProgressPerAction, getIdentifySuccessChance } from '@/data/scrolls'
 
 const WEATHERS: Weather[] = ['晴', '晴', '晴', '云', '云', '雨', '雪']
 
@@ -67,6 +71,10 @@ const initialState: GameState = {
   storyScores: {},
   isSettlement: false,
   lastSettlement: null,
+  scrolls: getDailyScrolls(),
+  repairedScrollStories: [],
+  lastScrollResult: null,
+  currentScroll: null,
 }
 
 interface GameActions {
@@ -82,6 +90,11 @@ interface GameActions {
   nextDay: () => void
   resetGame: () => void
   addLedgerRecord: (type: LedgerRecord['type'], category: string, amount: number, note: string) => void
+  buyScroll: (scrollId: string) => void
+  identifyScroll: (scrollId: string, guess: ScrollAuthenticity) => void
+  repairScroll: (scrollId: string) => void
+  setCurrentScroll: (scroll: Scroll | null) => void
+  clearScrollResult: () => void
 }
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -168,7 +181,18 @@ export const useGameStore = create<GameState & GameActions>()(
           if (idx >= 0) seats[idx].occupied = true
         }
 
-        const availableStories = pickRandomStories(3)
+        const baseStories = pickRandomStories(3)
+        const availableStories = [...baseStories]
+
+        if (state.repairedScrollStories.length > 0) {
+          const repairedPool = state.repairedScrollStories.filter(
+            (s) => !baseStories.find((bs) => bs.id === s.id)
+          )
+          if (repairedPool.length > 0) {
+            const scrollStory = repairedPool[Math.floor(Math.random() * repairedPool.length)]
+            availableStories.push(scrollStory)
+          }
+        }
 
         set({
           phase: 'night',
@@ -203,13 +227,31 @@ export const useGameStore = create<GameState & GameActions>()(
 
         const newProgress = Math.min(100, state.storyProgress + 4)
 
-        if (!state.currentInterruption && Math.random() < 0.18 && state.storyProgress > 10 && state.storyProgress < 90) {
-          const seatedCustomers = state.customers.filter((c) => c.seatId !== null)
+        const isFakeStory = state.currentStory?.isFakeScroll
+        const seatedCustomers = state.customers.filter((c) => c.seatId !== null)
+        const hasScholar = seatedCustomers.some((c) => c.type === '书生')
+
+        let interruptionChance = 0.18
+        if (isFakeStory && hasScholar) {
+          interruptionChance = 0.35
+        }
+
+        if (!state.currentInterruption && Math.random() < interruptionChance && state.storyProgress > 10 && state.storyProgress < 90) {
           if (seatedCustomers.length > 0) {
-            const c = seatedCustomers[Math.floor(Math.random() * seatedCustomers.length)]
-            const matching = state.interruptions.filter((i) => i.customerType === c.type)
-            const pool = matching.length > 0 ? matching : state.interruptions
-            const ev = pool[Math.floor(Math.random() * pool.length)]
+            let ev
+            if (isFakeStory && hasScholar && Math.random() < 0.6) {
+              const fakeScrollInterruptions = state.interruptions.filter((i) =>
+                i.id.startsWith('i-fake-scroll')
+              )
+              ev = fakeScrollInterruptions[Math.floor(Math.random() * fakeScrollInterruptions.length)]
+            } else {
+              const c = seatedCustomers[Math.floor(Math.random() * seatedCustomers.length)]
+              const matching = state.interruptions.filter(
+                (i) => i.customerType === c.type && !i.id.startsWith('i-fake-scroll')
+              )
+              const pool = matching.length > 0 ? matching : state.interruptions.filter((i) => !i.id.startsWith('i-fake-scroll'))
+              ev = pool[Math.floor(Math.random() * pool.length)]
+            }
             set({ currentInterruption: ev, storyProgress: newProgress })
             return
           }
@@ -362,6 +404,9 @@ export const useGameStore = create<GameState & GameActions>()(
           currentInterruption: null,
           isSettlement: false,
           seats: s.seats.map((seat) => ({ ...seat, occupied: false })),
+          scrolls: getDailyScrolls(),
+          currentScroll: null,
+          lastScrollResult: null,
         }))
       },
 
@@ -385,6 +430,133 @@ export const useGameStore = create<GameState & GameActions>()(
           ],
         }))
       },
+
+      buyScroll: (scrollId: string) => {
+        const state = get()
+        const scroll = state.scrolls.find((s) => s.id === scrollId)
+        if (!scroll || scroll.isPurchased) return
+        if (state.gold < scroll.price) return
+
+        set((s) => ({
+          gold: s.gold - scroll.price,
+          scrolls: s.scrolls.map((sc) =>
+            sc.id === scrollId ? { ...sc, isPurchased: true } : sc
+          ),
+        }))
+        get().addLedgerRecord('支出', '旧书采购', scroll.price, `购买《${scroll.title}》残卷`)
+      },
+
+      identifyScroll: (scrollId: string, guess: ScrollAuthenticity) => {
+        const state = get()
+        const scroll = state.scrolls.find((s) => s.id === scrollId)
+        if (!scroll || !scroll.isPurchased || scroll.identified) return
+
+        const successChance = getIdentifySuccessChance(scroll, state.reputation)
+        const isCorrect = Math.random() * 100 < successChance
+        const actualAuthenticity = scroll.authenticity
+        const wasCorrect = guess === actualAuthenticity
+
+        let reputationChange = 0
+        let goldChange = 0
+
+        if (wasCorrect) {
+          reputationChange = 5
+          if (scroll.difficulty === '大师级') reputationChange = 15
+          else if (scroll.difficulty === '困难') reputationChange = 10
+          else if (scroll.difficulty === '进阶') reputationChange = 7
+          goldChange = Math.floor(scroll.price * 0.5)
+        } else {
+          reputationChange = -3
+          goldChange = -Math.floor(scroll.price * 0.2)
+        }
+
+        const result: ScrollResult = {
+          scrollId,
+          identifiedAs: guess,
+          wasCorrect,
+          reputationChange,
+          goldChange,
+        }
+
+        set((s) => ({
+          gold: Math.max(0, s.gold + goldChange),
+          reputation: Math.max(0, Math.min(100, s.reputation + reputationChange)),
+          scrolls: s.scrolls.map((sc) =>
+            sc.id === scrollId ? { ...sc, identified: true } : sc
+          ),
+          lastScrollResult: result,
+          reputationHistory: [
+            ...s.reputationHistory,
+            {
+              day: s.day,
+              value: Math.max(0, Math.min(100, s.reputation + reputationChange)),
+              delta: reputationChange,
+              reason: wasCorrect ? '考据正确' : '考据失误',
+            },
+          ],
+        }))
+
+        if (goldChange > 0) {
+          get().addLedgerRecord('收入', '考据奖励', goldChange, `考据《${scroll.title}》获得奖励`)
+        } else if (goldChange < 0) {
+          get().addLedgerRecord('支出', '考据失误', Math.abs(goldChange), `考据《${scroll.title}》失误赔偿`)
+        }
+      },
+
+      repairScroll: (scrollId: string) => {
+        const state = get()
+        const scroll = state.scrolls.find((s) => s.id === scrollId)
+        if (!scroll || !scroll.isPurchased || scroll.isRepaired) return
+
+        const repairCost = getRepairCost(scroll)
+        if (state.gold < repairCost) return
+
+        const progressGain = getRepairProgressPerAction(scroll)
+        const newProgress = Math.min(100, scroll.repairProgress + progressGain)
+        const isCompleted = newProgress >= 100
+
+        let repairedStories = state.repairedScrollStories
+        if (isCompleted && scroll.repairedStory) {
+          repairedStories = [...repairedStories, scroll.repairedStory]
+        }
+
+        set((s) => ({
+          gold: s.gold - repairCost,
+          scrolls: s.scrolls.map((sc) =>
+            sc.id === scrollId
+              ? { ...sc, repairProgress: newProgress, isRepaired: isCompleted }
+              : sc
+          ),
+          repairedScrollStories: repairedStories,
+        }))
+
+        if (repairCost > 0) {
+          get().addLedgerRecord('支出', '修补残卷', repairCost, `修补《${scroll.title}》${isCompleted ? '完成' : '中'}`)
+        }
+
+        if (isCompleted && scroll.repairedStory) {
+          set((s) => ({
+            reputationHistory: [
+              ...s.reputationHistory,
+              {
+                day: s.day,
+                value: Math.min(100, s.reputation + 8),
+                delta: 8,
+                reason: `修复完成：${scroll.title}`,
+              },
+            ],
+            reputation: Math.min(100, s.reputation + 8),
+          }))
+        }
+      },
+
+      setCurrentScroll: (scroll: Scroll | null) => {
+        set({ currentScroll: scroll })
+      },
+
+      clearScrollResult: () => {
+        set({ lastScrollResult: null })
+      },
     }),
     {
       name: 'teahouse-storyteller-save',
@@ -400,6 +572,8 @@ export const useGameStore = create<GameState & GameActions>()(
         reputationHistory: s.reputationHistory,
         lastStoryDay: s.lastStoryDay,
         storyScores: s.storyScores,
+        scrolls: s.scrolls,
+        repairedScrollStories: s.repairedScrollStories,
       }),
     }
   )

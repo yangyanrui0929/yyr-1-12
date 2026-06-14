@@ -151,4 +151,54 @@ export const INTERRUPTIONS: InterruptionEvent[] = [
       },
     ],
   },
+  {
+    id: 'i-fake-scroll-1',
+    customerType: '书生',
+    content: '一书生拍案而起：「且慢！此段故事漏洞百出！据小生考据，此事与史实不符，分明是后人伪作！」',
+    options: [
+      {
+        text: '虚心请教：「愿闻其详，请先生指教」',
+        satisfactionEffect: 5,
+        reputationEffect: -2,
+        goldEffect: 0,
+      },
+      {
+        text: '强作镇定：「说书野史，何必当真」',
+        satisfactionEffect: -15,
+        reputationEffect: -8,
+        goldEffect: -20,
+      },
+      {
+        text: '连忙改口：「先生说得是，是小人失察，这就换个故事」',
+        satisfactionEffect: -5,
+        reputationEffect: -5,
+        goldEffect: -10,
+      },
+    ],
+  },
+  {
+    id: 'i-fake-scroll-2',
+    customerType: '书生',
+    content: '一书生冷笑一声：「哼，此卷文风拙劣，与原著相去甚远，分明是市井间的仿造伪本！掌柜的，你这是拿假货糊弄人啊！」',
+    options: [
+      {
+        text: '连连赔罪：「是小人有眼无珠，这就将此卷撤下」',
+        satisfactionEffect: 0,
+        reputationEffect: -10,
+        goldEffect: -30,
+      },
+      {
+        text: '辩解道：「虽非真迹，故事本身尚可一听」',
+        satisfactionEffect: -10,
+        reputationEffect: -5,
+        goldEffect: -15,
+      },
+      {
+        text: '请书生上座，奉上好茶赔罪',
+        satisfactionEffect: 10,
+        reputationEffect: -3,
+        goldEffect: -20,
+      },
+    ],
+  },
 ]

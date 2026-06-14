@@ -66,13 +66,28 @@ export default function StoryPicker() {
                   <div
                     key={story.id}
                     onClick={() => setSelectedStoryId(isSelected ? null : story.id)}
-                    className={`card-ancient cursor-pointer hover:-translate-y-1 transition-all border-2 ${
-                      isSelected ? 'border-gold ring-2 ring-gold/30' : 'border-sandal/30 hover:border-gold'
+                    className={`card-ancient cursor-pointer hover:-translate-y-1 transition-all border-2 relative ${
+                      isSelected
+                        ? 'border-gold ring-2 ring-gold/30'
+                        : story.isFromScroll
+                        ? 'border-sparkle/50 hover:border-sparkle'
+                        : 'border-sandal/30 hover:border-gold'
                     }`}
                   >
-                    <div className="aspect-[3/4] flex flex-col items-center justify-center bg-gradient-to-b from-paper to-paper-dark rounded-lg mb-3 border border-sandal/30">
-                      <span className="text-5xl mb-2">📜</span>
-                      <span className="font-brush text-xl text-sandal text-center px-2">
+                    {story.isFromScroll && (
+                      <div className="absolute -top-2 -right-2 bg-sparkle text-white text-[10px] px-2 py-0.5 rounded-full font-song flex items-center gap-1 shadow-lg z-10">
+                        <Sparkles className="w-3 h-3" /> 独家残卷
+                      </div>
+                    )}
+                    <div className={`aspect-[3/4] flex flex-col items-center justify-center rounded-lg mb-3 border ${
+                      story.isFromScroll
+                        ? 'bg-gradient-to-b from-sparkle/5 to-paper-dark border-sparkle/30'
+                        : 'bg-gradient-to-b from-paper to-paper-dark border-sandal/30'
+                    }`}>
+                      <span className="text-5xl mb-2">{story.isFromScroll ? '📖' : '📜'}</span>
+                      <span className={`font-brush text-xl text-center px-2 ${
+                        story.isFromScroll ? 'text-sparkle' : 'text-sandal'
+                      }`}>
                         {story.title}
                       </span>
                     </div>

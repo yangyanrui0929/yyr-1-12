@@ -53,6 +53,40 @@ export interface Story {
   heat: number
   branches: StoryBranch[]
   summary: string
+  isFromScroll?: boolean
+  isFakeScroll?: boolean
+}
+
+export type ScrollAuthenticity = '真迹' | '伪本' | '存疑'
+
+export type ScrollCondition = '完好' | '轻微破损' | '严重破损' | '残缺不全'
+
+export type ScrollDifficulty = '入门' | '进阶' | '困难' | '大师级'
+
+export interface Scroll {
+  id: string
+  title: string
+  content: string
+  tags: string[]
+  authenticity: ScrollAuthenticity
+  condition: ScrollCondition
+  difficulty: ScrollDifficulty
+  price: number
+  summary: string
+  repairedStory?: Story
+  isPurchased: boolean
+  isRepaired: boolean
+  identified: boolean
+  repairProgress: number
+  sellerHint: string
+}
+
+export interface ScrollResult {
+  scrollId: string
+  identifiedAs: ScrollAuthenticity
+  wasCorrect: boolean
+  reputationChange: number
+  goldChange: number
 }
 
 export type CustomerType = '书生' | '商贾' | '妇人' | '江湖人' | '官员' | '平民'
@@ -148,6 +182,10 @@ export interface GameState {
   storyScores: Record<string, number[]>
   isSettlement: boolean
   lastSettlement: SettlementResult | null
+  scrolls: Scroll[]
+  repairedScrollStories: Story[]
+  lastScrollResult: ScrollResult | null
+  currentScroll: Scroll | null
 }
 
 export interface SettlementResult {

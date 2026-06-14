@@ -18,6 +18,8 @@ export default {
         'tea-light': '#8AAD77',
         gold: '#C9A24B',
         'gold-light': '#D9B96A',
+        sparkle: '#9B6B9E',
+        'sparkle-light': '#B88DBA',
       },
       fontFamily: {
         brush: ['"ZCOOL XiaoWei"', 'serif'],
